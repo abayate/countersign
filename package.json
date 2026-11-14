@@ -1,0 +1,22 @@
+{
+  "name": "countersign",
+  "version": "0.1.0",
+  "description": "Payment-fraud guard: an agent between a company's invoices and its bank account.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@photon-ai/api": "^0.6.0",
+    "@solana/web3.js": "^1.99.0",
+    "express": "^5.3.0",
+    "mongodb": "^7.9.0",
+    "pg": "^8.23.1"
+  }
+}

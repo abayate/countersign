@@ -1,0 +1,19 @@
+# One Vultr instance: Countersign (API + background worker) behind Caddy for HTTPS.
+# Usage on the server:  DOMAIN=your-domain.com docker compose -f deploy/docker-compose.yml up -d --build
+services:
+  countersign:
+    build: ..
+    env_file: ../.env
+    restart: unless-stopped
+    volumes:
+      - data:/app/data
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    command: caddy reverse-proxy --from ${DOMAIN:?set DOMAIN} --to countersign:3000
+    volumes:
+      - caddy:/data
+volumes:
+  data:
+  caddy:

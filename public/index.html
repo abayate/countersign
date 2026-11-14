@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Countersign</title>
+<style>
+:root {
+  --bg: #f4f2ee; --surface: #fffefb; --sunken: #ebe8e1; --line: #dcd8ce;
+  --ink: #1c1b18; --ink2: #55524a; --ink3: #85817a;
+  --accent: #2f4f8f; --accent-soft: #e3e9f5; --series: #4a72c4;
+  --good: #1f7a4d; --good-soft: #e0f1e7; --warn: #9a6200; --warn-soft: #f8ecd2; --crit: #b3261e; --crit-soft: #f9e2df;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131416; --surface: #1c1d20; --sunken: #26282c; --line: #33363b;
+    --ink: #ecebe7; --ink2: #b3b1aa; --ink3: #85837d;
+    --accent: #9db7ee; --accent-soft: #263350; --series: #6f95e0;
+    --good: #6fcf9a; --good-soft: #17352a; --warn: #e5b45a; --warn-soft: #3b2f14; --crit: #f08a82; --crit-soft: #43201d;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+button { font: inherit; color: inherit; cursor: pointer; }
+h1, h2, h3, p { margin: 0; }
+header { display: flex; align-items: center; gap: 16px; padding: 14px 24px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.brand { font: 600 20px/1 Georgia, "Times New Roman", serif; letter-spacing: -.01em; }
+.brand span { color: var(--accent); }
+.sub { color: var(--ink2); }
+.pills { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 99px; font-size: 12px; color: var(--ink2); background: var(--surface); }
+.pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink3); }
+.pill.live i { background: var(--good); }
+.pill.live { color: var(--ink); }
+.ghost { background: none; border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; }
+.ghost:hover { background: var(--sunken); }
+main { display: grid; grid-template-columns: 300px minmax(0, 1fr) 340px; gap: 16px; padding: 16px 24px 40px; align-items: start; }
+@media (max-width: 1150px) { main { grid-template-columns: 1fr; } }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 16px 24px 0; }
+@media (max-width: 800px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.tile .k { font-size: 12px; color: var(--ink2); }
+.tile .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .n { font-size: 12px; color: var(--ink3); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 16px; }
+.card h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--ink2); margin-bottom: 10px; }
+.scn { display: block; width: 100%; text-align: left; background: none; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+.scn:hover { border-color: var(--accent); background: var(--accent-soft); }
+.scn b { display: block; font-weight: 600; }
+.scn small { color: var(--ink2); }
+textarea { width: 100%; min-height: 110px; font: 12px/1.4 var(--mono); background: var(--sunken); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+details summary { cursor: pointer; color: var(--ink2); margin: 6px 0; }
+.primary { background: var(--accent); color: var(--surface); border: 0; border-radius: 6px; padding: 7px 12px; font-weight: 600; }
+.row { display: flex; gap: 10px; align-items: center; padding: 9px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+.row:hover { background: var(--sunken); }
+.row.sel { border-color: var(--accent); background: var(--accent-soft); }
+.row .who { flex: 1; min-width: 0; }
+.row .who b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .who small { color: var(--ink2); }
+.amt { font-variant-numeric: tabular-nums; font-weight: 600; }
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 5px; white-space: nowrap; }
+.chip.good { background: var(--good-soft); color: var(--good); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.chip.crit { background: var(--crit-soft); color: var(--crit); }
+.chip.idle { background: var(--sunken); color: var(--ink2); }
+.empty { color: var(--ink3); padding: 20px 4px; text-align: center; }
+.banner { display: flex; gap: 14px; align-items: flex-start; padding: 14px; border-radius: 10px; margin-bottom: 14px; }
+.banner.good { background: var(--good-soft); } .banner.warn { background: var(--warn-soft); } .banner.crit { background: var(--crit-soft); } .banner.idle { background: var(--sunken); }
+.banner .big { font: 600 20px/1.2 Georgia, serif; }
+.banner .risk { margin-left: auto; text-align: right; flex: none; }
+.banner .risk b { font-size: 26px; font-variant-numeric: tabular-nums; }
+.meter { width: 90px; height: 5px; background: var(--surface); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.meter i { display: block; height: 100%; background: currentColor; }
+.acts { display: flex; gap: 8px; margin-top: 10px; }
+.acts .hold { background: var(--crit); color: var(--surface); border: 0; border-radius: 6px; padding: 7px 12px; font-weight: 600; }
+dl { display: grid; grid-template-columns: 130px 1fr; gap: 4px 12px; margin: 0; }
+dt { color: var(--ink2); } dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.diff { color: var(--crit); font-weight: 600; }
+.finding { border-top: 1px solid var(--line); padding: 10px 0; }
+.finding:first-of-type { border-top: 0; padding-top: 0; }
+.finding .t { display: flex; gap: 8px; align-items: baseline; }
+.finding .t b { flex: 1; }
+.finding p { color: var(--ink2); margin: 2px 0 6px; }
+.ev { font: 11px var(--mono); background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; margin-right: 4px; }
+.ev.on { border-color: var(--accent); color: var(--accent); }
+.evbox { font: 12px/1.45 var(--mono); background: var(--sunken); border-radius: 6px; padding: 8px 10px; margin-top: 6px; overflow-wrap: anywhere; }
+.evbox span { color: var(--ink3); }
+.tl { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--line); }
+.tl li { position: relative; padding: 0 0 12px 12px; }
+.tl li::before { content: ""; position: absolute; left: -20px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--ink3); border: 2px solid var(--surface); }
+.tl li.sus::before { background: var(--crit); }
+.tl time { font: 11px var(--mono); color: var(--ink3); margin-right: 6px; }
+.tl .src { font-size: 11px; color: var(--ink2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-right: 6px; }
+.trace { font: 12px/1.6 var(--mono); color: var(--ink2); }
+.trace b { color: var(--ink); font-weight: 600; }
+.trace .tool { color: var(--accent); }
+.phone { background: var(--sunken); border-radius: 18px; padding: 10px; border: 1px solid var(--line); }
+.phone .top { text-align: center; font-size: 12px; color: var(--ink2); padding: 2px 0 8px; }
+.thread { height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px; }
+.msg { max-width: 88%; padding: 7px 10px; border-radius: 14px; white-space: pre-wrap; font-size: 13px; overflow-wrap: anywhere; }
+.msg.out { background: var(--surface); border: 1px solid var(--line); align-self: flex-start; border-bottom-left-radius: 4px; }
+.msg.in { background: var(--accent); color: var(--surface); align-self: flex-end; border-bottom-right-radius: 4px; }
+.msg small { display: block; font-size: 10px; opacity: .65; margin-top: 3px; }
+.quick { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 4px 6px; }
+.quick button { background: var(--surface); border: 1px solid var(--line); border-radius: 99px; padding: 3px 10px; font-size: 12px; }
+.send { display: flex; gap: 6px; }
+.send input { flex: 1; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 99px; padding: 7px 12px; font: inherit; min-width: 0; }
+.led { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.led:first-of-type { border-top: 0; }
+.led .h { font-family: var(--mono); color: var(--ink3); grid-column: 2; overflow-wrap: anywhere; }
+.led a { color: var(--accent); }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart text { font: 11px "Segoe UI", system-ui, sans-serif; fill: var(--ink2); }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12px; padding: 4px 8px; border-radius: 5px; white-space: nowrap; transform: translate(-50%, -130%); display: none; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 800px) { .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="brand">Counter<span>sign</span></div>
+    <div class="sub" id="company"></div>
+  </div>
+  <div class="pills" id="pills"></div>
+  <button class="ghost" id="reset" title="Reload the demo company and clear the queue">Reset demo</button>
+</header>
+<section class="stats" id="stats"></section>
+<main>
+  <div>
+    <div class="card">
+      <h2>Send an invoice to accounts payable</h2>
+      <div id="scenarios"></div>
+      <details>
+        <summary>Paste a raw email</summary>
+        <textarea id="raw" placeholder="Headers, a blank line, then the body"></textarea>
+        <button class="primary" id="sendraw" style="margin-top:6px">Submit</button>
+      </details>
+    </div>
+    <div class="card">
+      <h2>Payment requests</h2>
+      <div id="queue"></div>
+    </div>
+  </div>
+  <div id="detail"><div class="card empty">Send an invoice to see Countersign check it.</div></div>
+  <div>
+    <div class="card">
+      <h2 id="phonetitle">Approver's phone</h2>
+      <div class="phone">
+        <div class="top" id="phonetop"></div>
+        <div class="thread" id="thread"></div>
+        <div id="simctl">
+          <div class="quick" id="quick"></div>
+          <form class="send" id="sendform"><input id="reply" placeholder="Reply as the approver" autocomplete="off"><button class="primary">Send</button></form>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Decision ledger <span id="chain"></span></h2>
+      <div id="ledger"></div>
+    </div>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+// Invoice text is attacker-controlled, so everything rendered goes through esc().
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const usd = (n) => n == null ? '—' : Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+const mask = (a) => a ? '••••' + String(a).slice(-4) : '—';
+const when = (ts) => new Date(ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const api = (path, body) => fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined).then((r) => r.json());
+
+const STATUS = {
+  analysing: ['idle', '◌', 'Checking'], cleared: ['good', '✓', 'Cleared'], paid: ['good', '✓', 'Paid'],
+  held: ['warn', '⏸', 'On hold'], approved: ['good', '✓', 'Approved'], blocked: ['crit', '✕', 'Blocked'], pay_failed: ['crit', '!', 'Payment failed'],
+};
+const chip = (st) => { const [c, i, l] = STATUS[st] || STATUS.analysing; return `<span class="chip ${c}">${i} ${l}</span>`; };
+
+let state = null, selected = null, openEv = {}, lastTop = null;
+
+async function refresh() {
+  state = await api('/api/state');
+  const top = state.requests[0]?.id || null;
+  if (top !== lastTop) { selected = top; lastTop = top; } // follow the newest request as it arrives
+  renderShell();
+  await renderDetail();
+}
+let pending = null;
+const soon = () => { clearTimeout(pending); pending = setTimeout(refresh, 80); };
+
+function renderShell() {
+  $('company').textContent = `Guarding ${state.company}'s operating account`;
+  const names = { gemini: 'Gemini', mongodb: 'MongoDB', tiger: 'Tiger Data', nessie: 'Nessie', solana: 'Solana', photon: 'Photon' };
+  $('pills').innerHTML = Object.entries(state.integrations).map(([k, v]) =>
+    `<span class="pill ${v.live ? 'live' : ''}" title="${esc(v.detail)}"><i></i>${names[k]} · ${v.live ? 'live' : 'demo'}</span>`).join('');
+  const s = state.stats;
+  $('stats').innerHTML = [
+    ['Operating balance', usd(s.balance), state.integrations.nessie.live ? 'Capital One Nessie' : 'mock bank'],
+    ['Paid', usd(s.paid), `${s.paidCount} payment${s.paidCount === 1 ? '' : 's'} released`],
+    ['On hold', usd(s.held), `${s.heldCount} waiting on ${esc(state.approver)}`],
+    ['Blocked', usd(s.blocked), `${s.blockedCount} payment${s.blockedCount === 1 ? '' : 's'} stopped`],
+  ].map(([k, v, n]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
+  $('scenarios').innerHTML = state.scenarios.map((x) => `<button class="scn" data-s="${x.id}"><b>${esc(x.label)}</b><small>${esc(x.hint)}</small></button>`).join('');
+  $('queue').innerHTML = state.requests.length ? state.requests.map((r) => `
+    <div class="row ${r.id === selected ? 'sel' : ''}" data-id="${r.id}">
+      <div class="who"><b>${esc(r.vendorName || 'Reading…')}</b><small>${r.id} · ${when(r.receivedAt)}</small></div>
+      <div style="text-align:right"><div class="amt">${usd(r.amount)}</div>${chip(r.status)}</div>
+    </div>`).join('') : '<div class="empty">Nothing yet.</div>';
+
+  $('phonetitle').textContent = state.simulator ? "Approver's phone (simulator)" : "Approver's phone (Photon)";
+  $('phonetop').textContent = `Countersign → ${state.approver}`;
+  $('simctl').style.display = state.simulator ? '' : 'none';
+  const th = $('thread');
+  th.innerHTML = state.messages.length ? state.messages.map((m) =>
+    `<div class="msg ${m.dir}">${esc(m.text)}<small>${when(m.ts)}${m.delivery ? ' · ' + esc(m.delivery) : ''}</small></div>`).join('')
+    : '<div class="empty">Cleared payments never text. Holds arrive here.</div>';
+  th.scrollTop = th.scrollHeight;
+  const held = state.requests.filter((r) => r.status === 'held');
+  const h = held[0];
+  $('quick').innerHTML = (h ? [`APPROVE ${h.n}`, `HOLD ${h.n}`, `WHY ${h.n}`] : []).concat('STATUS').map((t) => `<button data-q="${t}">${t}</button>`).join('');
+
+  const ok = state.ledgerCheck.ok;
+  $('chain').innerHTML = state.ledger.length ? `<span class="chip ${ok ? 'good' : 'crit'}" style="text-transform:none;letter-spacing:0">${ok ? '✓ chain intact' : '✕ broken at #' + state.ledgerCheck.brokenAt}</span>` : '';
+  $('ledger').innerHTML = state.ledger.length ? state.ledger.slice(0, 12).map((e) => `
+    <div class="led"><b>#${e.seq}</b><span><b>${esc(e.action)}</b> · ${esc(e.requestId)} · ${esc(e.actor)}</span>
+      <span class="h">${e.hash.slice(0, 24)}… ${e.solana ? `<a href="${esc(e.solana.url)}" target="_blank" rel="noopener">on Solana devnet ↗</a>` : state.integrations.solana.live ? '· anchoring…' : '· local chain'}</span></div>`).join('')
+    : '<div class="empty">Every verdict and decision is logged here.</div>';
+}
+
+async function renderDetail() {
+  if (!selected) { $('detail').innerHTML = '<div class="card empty">Send an invoice to see Countersign check it.</div>'; return; }
+  const { request: r, vendor, baseline } = await api('/api/requests/' + selected);
+  if (!r || r.id !== selected) return;
+  const v = r.verdict, x = r.extracted, [cls, icon, label] = STATUS[r.status] || STATUS.analysing;
+  const ev = Object.fromEntries((r.caseFile?.evidence || []).map((e) => [e.id, e]));
+  let h = `<div class="card"><div class="banner ${cls}" style="color:var(--${cls === 'idle' ? 'ink2' : cls})">
+    <div style="color:var(--ink)"><div class="big">${icon} ${label} · ${esc(r.vendorName || r.email?.from || '')}</div>
+      <p style="margin-top:4px">${esc(v?.summary || 'The agent is working on this request…')}</p>
+      ${v?.explainedBy ? `<small style="color:var(--ink3)">Explanation by ${v.explainedBy === 'gemini' ? 'Gemini' : 'template'}; decision by deterministic checks</small>` : ''}
+      ${r.status === 'held' ? `<div class="acts"><button class="primary" data-act="approve" ${vendor ? '' : 'disabled title="Not an approved vendor"'}>Approve and pay</button><button class="hold" data-act="hold">Keep hold and block</button></div>` : ''}
+    </div>
+    ${v ? `<div class="risk"><b>${v.risk}</b><div style="font-size:11px">risk / 100</div><div class="meter"><i style="width:${v.risk}%"></i></div></div>` : ''}
+  </div>`;
+  if (x) {
+    const changed = vendor && x.bank.account && x.bank.account !== vendor.bank.account;
+    h += `<div class="cols"><dl>
+      <dt>Invoice</dt><dd>${esc(x.invoiceNumber || '—')}</dd>
+      <dt>Amount</dt><dd><b>${usd(x.amount)}</b></dd>
+      <dt>From</dt><dd>${esc(r.email.from)}</dd>
+      <dt>Read by</dt><dd>${x.extractor === 'gemini' ? 'Gemini' : 'Rule-based reader'}</dd>
+    </dl><dl>
+      <dt>Pay to (invoice)</dt><dd class="${changed ? 'diff' : ''}">${esc(x.bank.routing || '—')} · ${mask(x.bank.account)}</dd>
+      <dt>On file</dt><dd>${vendor ? `${esc(vendor.bank.routing)} · ${mask(vendor.bank.account)}` : 'no vendor record'}</dd>
+      <dt>Email auth</dt><dd>SPF ${esc(r.email.auth.spf)} · DKIM ${esc(r.email.auth.dkim)} · DMARC ${esc(r.email.auth.dmarc)}</dd>
+      <dt>Callback number</dt><dd>${esc(vendor?.phone || '—')}</dd>
+    </dl></div>`;
+  }
+  h += '</div>';
+  if (v?.findings.length) {
+    h += `<div class="card"><h2>Findings (${v.findings.length})</h2>` + v.findings.map((f, i) => `
+      <div class="finding"><div class="t"><b>${esc(f.title)}</b><span class="chip ${f.critical ? 'crit' : 'warn'}">${f.critical ? '✕ always holds' : '+' + f.points}</span></div>
+        <p>${esc(f.detail)}</p>
+        ${f.evidence.map((id) => `<button class="ev ${openEv[r.id + i] === id ? 'on' : ''}" data-ev="${id}" data-f="${i}">${id}</button>`).join('')}
+        ${openEv[r.id + i] && ev[openEv[r.id + i]] ? `<div class="evbox"><span>${esc(ev[openEv[r.id + i]].source)} · ${esc(ev[openEv[r.id + i]].label)}</span><br>${esc(ev[openEv[r.id + i]].excerpt)}</div>` : ''}
+      </div>`).join('') + '</div>';
+  }
+  if (r.caseFile?.timeline.length) {
+    h += `<div class="card"><h2>Case file timeline</h2><ul class="tl">` + r.caseFile.timeline.map((e) => `
+      <li class="${e.suspicious ? 'sus' : ''}"><time>${when(e.ts)}</time><span class="src">${esc(e.source)}</span>${esc(e.label)}
+        ${e.evidence.map((id) => `<span class="ev">${id}</span>`).join('')}</li>`).join('') + '</ul></div>';
+  }
+  if (baseline?.rows.length && x?.amount) h += `<div class="card"><h2>Payments to ${esc(vendor.name)}: last ${baseline.rows.filter((p) => p.requestId !== r.id).slice(-12).length} and this invoice</h2><div class="chart" id="chart"></div></div>`;
+  h += `<div class="card"><h2>Agent trace</h2><div class="trace">` + r.trace.map((t) =>
+    `<div><b>${esc(t.step)}</b>${t.tool ? ` <span class="tool">${esc(t.tool)}()</span>` : ''} ${esc(t.detail)}</div>`).join('') + '</div></div>';
+  $('detail').innerHTML = h;
+  if ($('chart')) drawChart($('chart'), baseline, r);
+}
+
+// One series (payment amounts), this invoice as the last bar, vendor mean as a reference line.
+function drawChart(el, b, r) {
+  const past = b.rows.filter((p) => p.requestId !== r.id).slice(-12);
+  const flagged = r.verdict?.findings.some((f) => f.code === 'AMOUNT_ANOMALY');
+  const bars = past.map((p) => ({ label: new Date(p.ts).toLocaleString('en-US', { month: 'short' }), full: `${when(p.ts)} · ${p.invoiceNumber}`, v: p.amount }))
+    .concat({ label: 'This', full: `This invoice · ${r.extracted.invoiceNumber || ''}`, v: r.extracted.amount, now: true });
+  const mean = past.reduce((a, p) => a + p.amount, 0) / (past.length || 1);
+  const W = 640, H = 200, L = 52, R = 12, T = 22, B = 24, max = Math.max(...bars.map((d) => d.v), mean) * 1.08;
+  const step = (W - L - R) / bars.length, bw = Math.min(26, step - 8), y = (v) => T + (H - T - B) * (1 - v / max);
+  const k = (v) => v >= 1000 ? '$' + (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : '$' + v;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Past payment amounts and this invoice">`;
+  for (const t of [0, max / 2 / 1.08, max / 1.08]) s += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${k(Math.round(t))}</text>`;
+  bars.forEach((d, i) => {
+    const x = L + step * i + (step - bw) / 2, top = y(d.v), hgt = H - B - top, rr = Math.min(4, hgt);
+    const fill = d.now ? (flagged ? 'var(--crit)' : 'var(--accent)') : 'var(--series)';
+    s += `<path d="M${x},${H - B} V${top + rr} Q${x},${top} ${x + rr},${top} H${x + bw - rr} Q${x + bw},${top} ${x + bw},${top + rr} V${H - B} Z" fill="${fill}"/>
+      <rect x="${L + step * i}" y="${T}" width="${step}" height="${H - T - B}" fill="transparent" data-tip="${esc(d.full)} · ${usd(d.v)}" data-x="${x + bw / 2}" data-y="${top}"/>
+      <text x="${x + bw / 2}" y="${H - 8}" text-anchor="middle" ${d.now ? 'style="fill:var(--ink);font-weight:600"' : ''}>${d.label}</text>`;
+    if (d.now) s += `<text x="${x + bw / 2}" y="${top - 6}" text-anchor="${i > 3 ? 'end' : 'middle'}" style="fill:var(--ink);font-weight:600">${flagged ? '✕ ' : ''}${usd(d.v)}</text>`;
+  });
+  s += `<line x1="${L}" x2="${W - R}" y1="${y(mean)}" y2="${y(mean)}" stroke="var(--ink2)" stroke-dasharray="4 3"/><text x="${L + 4}" y="${y(mean) - 5}">average ${usd(mean)}</text></svg><div class="tip"></div>`;
+  el.innerHTML = s;
+  const tip = el.querySelector('.tip'), svg = el.querySelector('svg');
+  svg.addEventListener('mousemove', (e) => {
+    const t = e.target.dataset?.tip;
+    if (!t) { tip.style.display = 'none'; return; }
+    const sc = svg.clientWidth / W;
+    tip.textContent = t; tip.style.display = 'block';
+    tip.style.left = Math.min(Math.max(e.target.dataset.x * sc, 90), svg.clientWidth - 90) + 'px'; tip.style.top = e.target.dataset.y * sc + 'px';
+  });
+  svg.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+}
+
+document.addEventListener('click', async (e) => {
+  const t = e.target.closest('[data-s],[data-id],[data-act],[data-ev],[data-q]');
+  if (!t) return;
+  if (t.dataset.s) await api('/api/inbound', { scenario: t.dataset.s });
+  else if (t.dataset.id) { selected = t.dataset.id; refresh(); }
+  else if (t.dataset.act) { const r = await api(`/api/requests/${selected}/decision`, { action: t.dataset.act }); if (r.error) alert(r.error); }
+  else if (t.dataset.ev) { const key = selected + t.dataset.f; openEv[key] = openEv[key] === t.dataset.ev ? null : t.dataset.ev; renderDetail(); }
+  else if (t.dataset.q) await api('/api/sms/reply', { text: t.dataset.q });
+});
+$('sendform').addEventListener('submit', async (e) => { e.preventDefault(); const v = $('reply').value.trim(); if (!v) return; $('reply').value = ''; await api('/api/sms/reply', { text: v }); });
+$('sendraw').addEventListener('click', async () => { const raw = $('raw').value.trim(); if (raw) { await api('/api/inbound', { raw }); $('raw').value = ''; } });
+$('reset').addEventListener('click', async () => { if (confirm('Reload the demo data and clear the queue, texts and ledger?')) { await api('/api/reset', {}); lastTop = null; selected = null; refresh(); } });
+
+if (!location.search.includes('static')) { // ?static renders once, for screenshots
+  const es = new EventSource('/api/events');
+  for (const t of ['request', 'message', 'ledger', 'reset']) es.addEventListener(t, soon);
+}
+refresh();
+</script>
+</body>
+</html>

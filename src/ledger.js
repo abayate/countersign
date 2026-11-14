@@ -1,0 +1,61 @@
+// Tamper-evident decision log. Every verdict and approver decision is a link in a
+// SHA-256 hash chain; when a Solana key is configured each link's hash is also
+// written to devnet in a memo transaction, so the log can be checked against a
+// record Countersign cannot rewrite.
+import { createHash } from 'node:crypto';
+import { cfg } from './config.js';
+
+const MEMO_PROGRAM = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
+const GENESIS = '0'.repeat(64);
+const sha = (s) => createHash('sha256').update(s).digest('hex');
+const digest = (e) => sha(JSON.stringify([e.seq, e.ts, e.requestId, e.action, e.actor, e.risk, e.summary, e.prevHash]));
+
+export class Ledger {
+  #queue = Promise.resolve();
+  #web3 = null;
+  constructor(store, emit = () => {}) { this.store = store; this.emit = emit; }
+
+  async entries() { return (await this.store.col('ledger').all()).sort((a, b) => a.seq - b.seq); }
+
+  append(fields) {
+    const run = this.#queue.then(async () => {
+      const all = await this.entries();
+      const prev = all.at(-1);
+      const e = { seq: (prev?.seq || 0) + 1, ts: new Date().toISOString(), ...fields, prevHash: prev?.hash || GENESIS };
+      e.hash = digest(e);
+      e.id = `L${e.seq}`;
+      e.solana = null;
+      await this.store.col('ledger').put(e);
+      if (cfg.solanaSecret) this.#anchor(e).catch((err) => console.warn('[solana] anchor failed:', err.message));
+      return e;
+    });
+    this.#queue = run.catch(() => {});
+    return run;
+  }
+
+  async verify() {
+    let prevHash = GENESIS;
+    for (const e of await this.entries()) {
+      if (e.prevHash !== prevHash || digest(e) !== e.hash) return { ok: false, brokenAt: e.seq, count: e.seq };
+      prevHash = e.hash;
+    }
+    return { ok: true, count: (await this.entries()).length, head: prevHash };
+  }
+
+  async #anchor(entry) {
+    const web3 = (this.#web3 ??= await import('@solana/web3.js'));
+    const payer = web3.Keypair.fromSecretKey(Uint8Array.from(JSON.parse(cfg.solanaSecret)));
+    const conn = new web3.Connection(cfg.solanaRpc, 'confirmed');
+    const memo = `countersign:v1:${entry.seq}:${entry.requestId}:${entry.action}:${entry.hash}`;
+    const ix = new web3.TransactionInstruction({
+      keys: [{ pubkey: payer.publicKey, isSigner: true, isWritable: false }],
+      programId: new web3.PublicKey(MEMO_PROGRAM),
+      data: Buffer.from(memo, 'utf8'),
+    });
+    const signature = await web3.sendAndConfirmTransaction(conn, new web3.Transaction().add(ix), [payer]);
+    const fresh = await this.store.col('ledger').get(entry.id);
+    fresh.solana = { signature, url: `https://explorer.solana.com/tx/${signature}?cluster=devnet` };
+    await this.store.col('ledger').put(fresh);
+    this.emit('ledger', { id: entry.id });
+  }
+}
