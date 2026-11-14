@@ -8,12 +8,13 @@ if (-not (Test-Path .env)) { throw '.env is missing from the repository root' }
 New-Item -ItemType Directory -Force data\logs | Out-Null
 # Keep the laptop awake while this window runs (reverts when the process exits).
 Add-Type -Namespace Win32 -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'
-[Win32.Power]::SetThreadExecutionState(0x80000001) | Out-Null  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+[Win32.Power]::SetThreadExecutionState([uint32]2147483649) | Out-Null  # ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x1)
 $restarts = 0
 while ($true) {
   $log = "data\logs\server-$(Get-Date -Format yyyyMMdd).log"
   Write-Host "$(Get-Date -Format s) starting Countersign (restart #$restarts), log: $log"
-  & node src/server.js *>> $log
+  # Through cmd, so Windows PowerShell does not turn node's stderr warnings into errors.
+  cmd /c "node src\server.js >> `"$log`" 2>&1"
   $code = $LASTEXITCODE
   if ($code -eq 0) { break }
   Write-Host "$(Get-Date -Format s) server exited with code $code"
