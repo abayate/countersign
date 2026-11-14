@@ -11,10 +11,10 @@ Built at HackPrinceton Fall 2026 for the Business & Enterprise track.
 ```sh
 npm install
 npm start          # http://localhost:3000
-npm test           # 12 end-to-end tests of the core loop
+npm test           # 12 in-process checks of the core loop with stand-ins
 ```
 
-Needs Node 22 or newer. No keys are required: with an empty `.env` every integration uses a built-in stand-in, and the header shows which ones are live. Copy `.env.example` to `.env` and add keys to switch them on one at a time.
+Needs Node 22 or newer; use Node 24 on the teammate's Windows host to match CI/Docker. An empty `.env` uses built-in stand-ins for local regression work. Real credentials are already available in the separate private transfer folder; follow [the Windows guide](docs/WINDOWS_TEAM_SERVER.md) for the requested live integration work. The header indicates configured credentials, not verified service health. Startup with an empty database seeds data and can create remote resources when keys are enabled.
 
 ## Two-minute demo
 
@@ -42,13 +42,13 @@ invoice in → read → match vendor → screen → plan → investigate → ver
 | Verdict | Points add up to a risk score. 40 or more holds; a bank change, duplicate, blocklisted account or unknown vendor always holds. Gemini writes the explanation. | `src/agent.js` |
 | Act | Clear: transfer through the bank. Hold: text the approver and wait. | `src/bank.js`, `src/notify.js` |
 | Worker | A hold with no reply after `REMIND_AFTER_MIN` (default 30) gets one reminder text. | `src/agent.js` |
-| Record | Every verdict and decision is a link in a SHA-256 hash chain, anchored to Solana devnet. | `src/ledger.js` |
+| Record | Every verdict and decision is a link in a SHA-256 hash chain. With a Solana key, an asynchronous devnet memo is attempted; live anchoring is not yet verified. | `src/ledger.js` |
 
 Three design choices matter for a fraud control:
 
 - **The model explains; it does not decide.** The score comes from deterministic checks, so the same invoice always gets the same verdict and text inside an invoice cannot talk the agent into paying.
 - **Every finding cites evidence.** Each one points at numbered items in the case file (a header line, a sign-in record, a change request) that an investigator can check.
-- **Account numbers are never stored.** Bank details are kept as a fingerprint (a hash) plus the last four digits, and the number is redacted from the stored invoice text.
+- **Bank fields use fingerprints and last four digits.** The intended privacy rule is to avoid storing full account numbers, but the current intake path saves raw invoice text before redaction. This must be fixed before using non-synthetic data; see the current handoff.
 
 It also learns from decisions: an account the approver refuses is blocklisted for every vendor, and an approved bank change becomes the new verified vendor record.
 
@@ -77,33 +77,37 @@ It also learns from decisions: an account the approver refuses is blocklisted fo
 | MongoDB Atlas | `vendors`, `cases` (invoice and case in one document), messages, ledger; Atlas Search for look-alike vendors | `MONGODB_URI` (+ `ATLAS_SEARCH_INDEX`) | JSON file in `data/` |
 | Tiger Data | `payments` hypertable of paid, held and declined events; `vendor_daily` continuous aggregate; compression policy | `TIGER_DATABASE_URL` | In-process series |
 | Capital One Nessie v2 | Operating account, one payee account per vendor, invoices as bills, payments as transfers, decision hook | `NESSIE_API_KEY` (+ `PUBLIC_URL` for the hook) | Mock bank |
-| Solana | Devnet memo transaction per ledger entry | `SOLANA_SECRET_KEY` (`node scripts/solana-setup.js`) | Local hash chain only |
+| Solana | Devnet memo transaction per ledger entry | Existing funded `SOLANA_SECRET_KEY` from the private transfer | Local hash chain only |
 | Photon 2.0 | Texts the approver; reads their replies | `PHOTON_*` | On-screen phone |
 | Vultr | Hosting | `Dockerfile`, `deploy/` | Runs locally |
 
-After adding or changing keys, press **Reset demo** once so the vendors and history are created in the new backend.
+**Reset demo is destructive:** it clears application state/history and can create remote bank resources. Read [the current handoff](docs/HANDOFF.md) before startup/reset with real credentials. Fix the documented reset and payment defects, then seed only a deliberately selected disposable integration dataset.
 
 **Photon note.** A shared Photon line cannot send the first message. The approver texts the agent's number once (for example `status`); after that, holds arrive on their phone. Only `PHOTON_APPROVER_HANDLE` can approve or hold.
 
-**Solana note.** The devnet RPC faucet is closed, so fund the generated key at https://faucet.solana.com before starting the server.
+**Solana note.** The existing development wallet has 0.5 devnet SOL. Preserve that key when migrating; `scripts/solana-setup.js` generates and prints a different secret and is unnecessary for the handoff.
 
 **Nessie note.** The decision hook needs a public HTTPS address, so it only registers when `PUBLIC_URL` is set (after deploying).
 
 ## Status
 
-Verified in this repo: the core loop, all seven scenarios, PDF upload, text replies, case linking, the ledger and its tamper check (`npm test`), the API routes and the dashboard, all in demo mode.
+Audited November 14, 2026. The 12 existing in-process core checks pass, covering synthetic invoice/PDF scenarios, decisions, evidence/linkage, reminders and local ledger integrity. They disable external services and do not exercise the Express server or browser.
 
-Written against each service's current documentation but not yet run with real credentials: Gemini, MongoDB Atlas, Tiger Data, Nessie v2 and Photon. The Solana path was run as far as devnet accepting the transaction for simulation with an unfunded key. Expect fixes on first contact with each.
+Real credentials are now acquired: Nessie authenticated read, Gemini generation, MongoDB ping and Tiger SQL query succeeded. Photon v2 received a message and delivered an API reply. The existing Solana development wallet has 0.5 devnet SOL. These individual checks do not establish that the complete application is live. Settlement, raw-data persistence, webhook validation, Photon recovery and misleading health badges need fixes and service-by-service acceptance checks.
 
-Not production-ready: the dashboard and API have no login, and all vendor, invoice and sign-in data is synthetic.
+The requested host is a teammate's **Windows laptop on the same LAN**, not Marvin's Mac. `countersign.work` is registered with auto-renew off but is not connected to the app. No public deployment or submission is verified. Vultr account funding blocks its API and is optional for Windows team development.
+
+Start with [the current handoff](docs/HANDOFF.md), [completion audit](docs/PROJECT_STATUS.md), [Windows server guide](docs/WINDOWS_TEAM_SERVER.md), [service access inventory](docs/SERVICE_ACCESS.md), and [complete API reference](docs/API.md). An importable [Postman collection](docs/countersign.postman_collection.json) is included. Secrets are stored separately and are never part of Git/source exports.
+
+Not production-ready: no dashboard/API login, authorization or rate limiting. All data must remain synthetic. Do not expose the current API broadly; use private, authenticated team access while fixing it.
 
 ## Deploy
 
 ```sh
 docker build -t countersign .
-docker run -p 3000:3000 --env-file .env countersign
+docker run -p 127.0.0.1:3000:3000 --env-file .env countersign
 ```
 
 On a Vultr instance with a domain pointed at it, `deploy/vultr-cloud-init.sh` installs Docker, clones the repo and starts Countersign behind Caddy with HTTPS (`deploy/docker-compose.yml`).
 
-Devpost text, the pitch and a per-prize checklist are in `docs/SUBMISSION.md`. The prompt for handing the remaining work to another agent is in `docs/HANDOFF.md`.
+The Linux deployment files have not been verified. The Docker command also needs the Tiger CA mounted and its URI path adjusted before using the private Tiger configuration; see [service access](docs/SERVICE_ACCESS.md). For the requested Windows teammate host, use `docs/WINDOWS_TEAM_SERVER.md`. Devpost text, the pitch and prize checklist in `docs/SUBMISSION.md` remain drafts; reconcile every claim with the verified status in `docs/HANDOFF.md`.
