@@ -5,7 +5,8 @@ import { parseEmail, CaseFile } from './forensics.js';
 import { extract, explain } from './llm.js';
 import { resolveVendor, screen, plan, tools, score } from './checks.js';
 import { nextSeq } from './store.js';
-import { bankKey, maskAcct, money } from './text.js';
+import { bankKey, maskAcct, money, toBank } from './text.js';
+import { pdfText } from './pdf.js';
 import { cfg } from './config.js';
 
 export class Agent {
@@ -15,17 +16,22 @@ export class Agent {
   }
 
   async #blocklist() { return (await this.store.col('meta').get('blocklist'))?.keys || []; }
-  async #save(req) { await this.store.col('requests').put(req); this.emit('request', { id: req.id }); }
+  async #save(req) { await this.store.col('cases').put(req); this.emit('request', { id: req.id }); }
   async #step(req, step, detail, tool) {
     req.trace.push({ ts: new Date().toISOString(), step, tool: tool || null, detail });
     await this.#save(req);
     if (this.stepDelayMs) await sleep(this.stepDelayMs);
   }
 
-  async process(raw) {
+  // input: { raw } for an email, or { pdf: Buffer, filename, sender } for an uploaded invoice.
+  async process(input) {
+    const pdf = input.pdf || null;
+    let raw = typeof input === 'string' ? input : input.raw;
+    if (pdf) raw = `From: ${input.sender ? `<${input.sender}>` : ''}\nSubject: ${input.filename || 'invoice.pdf'}\n\n${await pdfText(pdf)}`;
     const n = await nextSeq(this.store, 'requestSeq', 1040);
     const req = {
       id: `PR-${n}`, n, receivedAt: new Date().toISOString(), raw, status: 'analysing',
+      source: pdf ? { kind: 'pdf', filename: input.filename || 'invoice.pdf' } : { kind: 'email' },
       extracted: null, vendorId: null, vendorName: null, verdict: null, caseFile: null,
       trace: [], payment: null, decision: null, billId: null,
     };
@@ -34,10 +40,13 @@ export class Agent {
     // 1. Read
     const email = parseEmail(raw);
     req.email = { from: email.from, subject: email.subject, replyTo: email.replyTo, auth: email.auth };
-    await this.#step(req, 'intake', `Email from ${email.from}: "${email.subject}"`);
-    req.extracted = await extract(email);
+    await this.#step(req, 'intake', pdf ? `PDF "${req.source.filename}"${email.from ? ` from ${email.from}` : ''}` : `Email from ${email.from}: "${email.subject}"`);
+    const read = await extract(email, pdf);
+    // Privacy: keep a fingerprint and the last four digits, never the account number itself.
+    if (read.bank.account) req.raw = raw.split(read.bank.account).join(`[account ending ${String(read.bank.account).slice(-4)}]`);
+    req.extracted = { ...read, bank: toBank(read.bank.routing, read.bank.account, read.bank.bankName) };
     const x = req.extracted;
-    await this.#step(req, 'read', `${x.extractor === 'gemini' ? 'Gemini' : 'Rule-based reader'} extracted ${x.invoiceNumber || 'no invoice #'}, ${money(x.amount || 0)}, account ${maskAcct(x.bank.account)}`, 'extract_invoice');
+    await this.#step(req, 'read', `${x.extractor === 'gemini' ? 'Gemini' : 'Rule-based reader'} extracted ${x.invoiceNumber || 'no invoice #'}, ${money(x.amount || 0)}, account ${maskAcct(x.bank)}`, 'extract_invoice');
 
     // 2. Match to the vendor master
     const vendors = await this.store.col('vendors').all();
@@ -50,10 +59,10 @@ export class Agent {
 
     // 3. Screen
     const baseline = vendor ? await this.series.baseline(vendor.id) : { n: 0, rows: [], monthly: [] };
-    const paid = await this.series.all();
+    const paid = await this.series.paid();
     const data = { req, email, vendor, resolution, vendors, baseline, blocklist: await this.#blocklist(), paid, cf };
     const findings = screen(data);
-    cf.event(req.receivedAt, 'email-header', `Invoice ${x.invoiceNumber || ''} received from ${email.from}`, { suspicious: findings.length > 0 });
+    cf.event(req.receivedAt, pdf ? 'upload' : 'email-header', `Invoice ${x.invoiceNumber || ''} received${email.from ? ` from ${email.from}` : ' by upload'}`, { suspicious: findings.length > 0 });
     await this.#step(req, 'screen', findings.length ? `${findings.length} check(s) raised: ${findings.map((f) => f.code).join(', ')}` : 'All screening checks passed', 'screen');
 
     // 4. Investigate only what screening raised
@@ -62,6 +71,9 @@ export class Agent {
       await this.#step(req, 'plan', `Investigating with: ${todo.join(' → ')}`);
       data.signins = vendor ? (await this.store.col('signins').all()).filter((s) => s.vendorId === vendor.id) : [];
       data.bankChanges = vendor ? (await this.store.col('bankChanges').all()).filter((c) => c.vendorId === vendor.id) : [];
+      data.allSignins = (await this.store.col('signins').all()).sort((a, b) => a.ts.localeCompare(b.ts));
+      data.otherCases = (await this.store.col('cases').all()).filter((c) => c.id !== req.id && c.indicators);
+      data.findings = findings;
       for (const name of todo) {
         const r = tools[name](data);
         findings.push(...r.findings);
@@ -80,13 +92,14 @@ export class Agent {
 
     // 6. Act
     try { req.billId = (await this.bank.createBill(req)).billId; } catch (err) { console.warn('[bank] bill:', err.message); }
-    await this.ledger.append({ requestId: req.id, action: req.verdict.decision, actor: 'countersign-agent', risk: req.verdict.risk, summary: `${req.vendorName} ${money(x.amount || 0)} -> ${maskAcct(x.bank.account)}` });
+    await this.ledger.append({ requestId: req.id, action: req.verdict.decision, actor: 'countersign-agent', risk: req.verdict.risk, summary: `${req.vendorName} ${money(x.amount || 0)} -> ${maskAcct(x.bank)}` });
     if (req.verdict.decision === 'clear') {
       req.status = 'cleared';
       await this.#pay(req, vendor);
       await this.#step(req, 'act', req.status === 'paid' ? `Paid ${money(x.amount)} (${req.payment.rail})` : `Payment failed: ${req.payment?.error}`, 'bank_pay');
     } else {
       req.status = 'held';
+      await this.#event(req, vendor, 'held');
       await this.notifier.send(this.#holdText(req, vendor), { requestId: req.id });
       await this.#step(req, 'act', `Payment held. Texted ${cfg.approverName}`, 'text_approver');
     }
@@ -99,15 +112,22 @@ export class Agent {
     return `Countersign HOLD · ${req.id}\n${req.vendorName} · ${money(req.extracted.amount || 0)}\nRisk ${req.verdict.risk}/100\n${top}${call}\nReply APPROVE ${req.n}, HOLD ${req.n} or WHY ${req.n}.`;
   }
 
+  // One row per payment event in the time series: paid | held | declined.
+  async #event(req, vendor, status, txnId = null) {
+    if (!vendor || !req.extracted.amount) return;
+    await this.series.record({
+      ts: new Date().toISOString(), vendorId: vendor.id, amount: req.extracted.amount, status, txnId,
+      invoiceNumber: req.extracted.invoiceNumber, requestId: req.id, bankKey: bankKey(req.extracted.bank), bankLast4: req.extracted.bank.last4,
+    }).catch((err) => console.warn('[series]', err.message));
+  }
+
   async #pay(req, vendor) {
     try {
       const r = await this.bank.pay(req, vendor);
-      req.payment = { ...r, ts: new Date().toISOString(), amount: req.extracted.amount, toAccount: maskAcct(req.extracted.bank.account) };
+      req.payment = { ...r, ts: new Date().toISOString(), amount: req.extracted.amount, toAccount: maskAcct(req.extracted.bank) };
       req.status = 'paid';
       await this.bank.closeBill(req.billId, 'completed').catch(() => {});
-      if (vendor) {
-        await this.series.record({ ts: req.payment.ts, vendorId: vendor.id, amount: req.extracted.amount, invoiceNumber: req.extracted.invoiceNumber, requestId: req.id, bankKey: bankKey(req.extracted.bank) });
-      }
+      await this.#event(req, vendor, 'paid', r.ref);
     } catch (err) {
       req.payment = { error: err.message };
       req.status = 'pay_failed';
@@ -117,7 +137,7 @@ export class Agent {
 
   // Background worker: a hold nobody has answered gets one reminder, so it cannot sit unseen.
   async remindStale(afterMs) {
-    const stale = (await this.store.col('requests').all())
+    const stale = (await this.store.col('cases').all())
       .filter((r) => r.status === 'held' && !r.remindedAt && Date.now() - Date.parse(r.receivedAt) >= afterMs)
       .sort((a, b) => a.n - b.n);
     for (const r of stale) {
@@ -135,7 +155,7 @@ export class Agent {
 
   // The approver's decision on a held request: 'approve' releases it, 'hold' blocks it for good.
   async decide(id, action, actor = cfg.approverName) {
-    const req = await this.store.col('requests').get(id);
+    const req = await this.store.col('cases').get(id);
     if (!req) throw new Error(`No request ${id}`);
     if (req.status !== 'held') throw new Error(`${id} is ${req.status}, not awaiting a decision`);
     const vendor = req.vendorId ? await this.store.col('vendors').get(req.vendorId) : null;
@@ -148,8 +168,9 @@ export class Agent {
       if (key && key !== bankKey(vendor.bank)) {
         vendor.bankHistory = [...(vendor.bankHistory || []), { ...vendor.bank, retiredAt: req.decision.ts }];
         vendor.bank = { ...req.extracted.bank, verifiedAt: req.decision.ts, verifiedBy: actor };
+        vendor.payeeAccountId = await this.bank.newPayee(vendor);
         await this.store.col('vendors').put(vendor);
-        await this.ledger.append({ requestId: req.id, action: 'bank-master-updated', actor, risk: req.verdict.risk, summary: `${vendor.name} -> ${maskAcct(vendor.bank.account)}` });
+        await this.ledger.append({ requestId: req.id, action: 'bank-master-updated', actor, risk: req.verdict.risk, summary: `${vendor.name} -> ${maskAcct(vendor.bank)}` });
       }
       req.status = 'approved';
       await this.ledger.append({ requestId: req.id, action: 'approve', actor, risk: req.verdict.risk, summary: `${req.vendorName} ${money(req.extracted.amount || 0)}` });
@@ -162,15 +183,16 @@ export class Agent {
         if (!keys.includes(key)) await this.store.col('meta').put({ id: 'blocklist', keys: [...keys, key] });
       }
       await this.bank.closeBill(req.billId, 'cancelled').catch(() => {});
-      await this.ledger.append({ requestId: req.id, action: 'block', actor, risk: req.verdict.risk, summary: `${req.vendorName} ${money(req.extracted.amount || 0)} · account ${maskAcct(req.extracted.bank.account)} blocklisted` });
-      await this.#step(req, 'decision', `${actor} kept the hold. Payment blocked; account ${maskAcct(req.extracted.bank.account)} added to the blocklist`);
+      await this.#event(req, vendor, 'declined');
+      await this.ledger.append({ requestId: req.id, action: 'block', actor, risk: req.verdict.risk, summary: `${req.vendorName} ${money(req.extracted.amount || 0)} · account ${maskAcct(req.extracted.bank)} blocklisted` });
+      await this.#step(req, 'decision', `${actor} kept the hold. Payment blocked; account ${maskAcct(req.extracted.bank)} added to the blocklist`);
     }
     return req;
   }
 
   // Text replies: APPROVE 1042 · HOLD 1042 · WHY 1042 · STATUS (number optional when one item is waiting).
   async handleReply(text, actor) {
-    const all = (await this.store.col('requests').all()).sort((a, b) => a.n - b.n);
+    const all = (await this.store.col('cases').all()).sort((a, b) => a.n - b.n);
     const held = all.filter((r) => r.status === 'held');
     const t = text.trim().toLowerCase();
     const n = Number(t.match(/(\d{3,})/)?.[1]) || null;
@@ -192,9 +214,9 @@ export class Agent {
     if (target.status !== 'held') return `${target.id} is already ${target.status}.`;
     try {
       const r = await this.decide(target.id, verb, actor);
-      if (verb === 'hold') return `${r.id} blocked. Nothing was paid, and account ${maskAcct(r.extracted.bank.account)} is now blocklisted for every vendor.`;
+      if (verb === 'hold') return `${r.id} blocked. Nothing was paid, and account ${maskAcct(r.extracted.bank)} is now blocklisted for every vendor.`;
       return r.status === 'paid'
-        ? `${r.id} released: ${money(r.extracted.amount)} paid to ${r.vendorName}, account ${maskAcct(r.extracted.bank.account)}. Logged as approved by you.`
+        ? `${r.id} released: ${money(r.extracted.amount)} paid to ${r.vendorName}, account ${maskAcct(r.extracted.bank)}. Logged as approved by you.`
         : `${r.id} approved, but the bank rejected the payment: ${r.payment?.error}`;
     } catch (err) {
       return err.message;

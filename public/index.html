@@ -134,6 +134,12 @@ dt { color: var(--ink2); } dd { margin: 0; font-variant-numeric: tabular-nums; o
       <h2>Send an invoice to accounts payable</h2>
       <div id="scenarios"></div>
       <details>
+        <summary>Upload an invoice PDF</summary>
+        <input type="file" id="pdf" accept="application/pdf">
+        <input id="sender" placeholder="Sender email (optional)" style="width:100%;margin:6px 0;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--sunken);color:var(--ink);font:inherit">
+        <button class="primary" id="sendpdf">Check this invoice</button>
+      </details>
+      <details>
         <summary>Paste a raw email</summary>
         <textarea id="raw" placeholder="Headers, a blank line, then the body"></textarea>
         <button class="primary" id="sendraw" style="margin-top:6px">Submit</button>
@@ -168,7 +174,7 @@ const $ = (id) => document.getElementById(id);
 // Invoice text is attacker-controlled, so everything rendered goes through esc().
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const usd = (n) => n == null ? '—' : Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-const mask = (a) => a ? '••••' + String(a).slice(-4) : '—';
+const mask = (b) => b?.last4 ? '••••' + b.last4 : '—';
 const when = (ts) => new Date(ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const api = (path, body) => fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined).then((r) => r.json());
 
@@ -182,7 +188,7 @@ let state = null, selected = null, openEv = {}, lastTop = null;
 
 async function refresh() {
   state = await api('/api/state');
-  const top = state.requests[0]?.id || null;
+  const top = state.cases[0]?.id || null;
   if (top !== lastTop) { selected = top; lastTop = top; } // follow the newest request as it arrives
   renderShell();
   await renderDetail();
@@ -203,7 +209,7 @@ function renderShell() {
     ['Blocked', usd(s.blocked), `${s.blockedCount} payment${s.blockedCount === 1 ? '' : 's'} stopped`],
   ].map(([k, v, n]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
   $('scenarios').innerHTML = state.scenarios.map((x) => `<button class="scn" data-s="${x.id}"><b>${esc(x.label)}</b><small>${esc(x.hint)}</small></button>`).join('');
-  $('queue').innerHTML = state.requests.length ? state.requests.map((r) => `
+  $('queue').innerHTML = state.cases.length ? state.cases.map((r) => `
     <div class="row ${r.id === selected ? 'sel' : ''}" data-id="${r.id}">
       <div class="who"><b>${esc(r.vendorName || 'Reading…')}</b><small>${r.id} · ${when(r.receivedAt)}</small></div>
       <div style="text-align:right"><div class="amt">${usd(r.amount)}</div>${chip(r.status)}</div>
@@ -217,7 +223,7 @@ function renderShell() {
     `<div class="msg ${m.dir}">${esc(m.text)}<small>${when(m.ts)}${m.delivery ? ' · ' + esc(m.delivery) : ''}</small></div>`).join('')
     : '<div class="empty">Cleared payments never text. Holds arrive here.</div>';
   th.scrollTop = th.scrollHeight;
-  const held = state.requests.filter((r) => r.status === 'held');
+  const held = state.cases.filter((r) => r.status === 'held');
   const h = held[0];
   $('quick').innerHTML = (h ? [`APPROVE ${h.n}`, `HOLD ${h.n}`, `WHY ${h.n}`] : []).concat('STATUS').map((t) => `<button data-q="${t}">${t}</button>`).join('');
 
@@ -231,7 +237,7 @@ function renderShell() {
 
 async function renderDetail() {
   if (!selected) { $('detail').innerHTML = '<div class="card empty">Send an invoice to see Countersign check it.</div>'; return; }
-  const { request: r, vendor, baseline } = await api('/api/requests/' + selected);
+  const { case: r, vendor, baseline } = await api('/api/cases/' + selected);
   if (!r || r.id !== selected) return;
   const v = r.verdict, x = r.extracted, [cls, icon, label] = STATUS[r.status] || STATUS.analysing;
   const ev = Object.fromEntries((r.caseFile?.evidence || []).map((e) => [e.id, e]));
@@ -244,16 +250,16 @@ async function renderDetail() {
     ${v ? `<div class="risk"><b>${v.risk}</b><div style="font-size:11px">risk / 100</div><div class="meter"><i style="width:${v.risk}%"></i></div></div>` : ''}
   </div>`;
   if (x) {
-    const changed = vendor && x.bank.account && x.bank.account !== vendor.bank.account;
+    const changed = vendor && x.bank.fingerprint && x.bank.fingerprint !== vendor.bank.fingerprint;
     h += `<div class="cols"><dl>
       <dt>Invoice</dt><dd>${esc(x.invoiceNumber || '—')}</dd>
       <dt>Amount</dt><dd><b>${usd(x.amount)}</b></dd>
-      <dt>From</dt><dd>${esc(r.email.from)}</dd>
+      <dt>From</dt><dd>${esc(r.email.from || '—')}${r.source?.kind === 'pdf' ? ' · PDF ' + esc(r.source.filename) : ''}</dd>
       <dt>Read by</dt><dd>${x.extractor === 'gemini' ? 'Gemini' : 'Rule-based reader'}</dd>
     </dl><dl>
-      <dt>Pay to (invoice)</dt><dd class="${changed ? 'diff' : ''}">${esc(x.bank.routing || '—')} · ${mask(x.bank.account)}</dd>
-      <dt>On file</dt><dd>${vendor ? `${esc(vendor.bank.routing)} · ${mask(vendor.bank.account)}` : 'no vendor record'}</dd>
-      <dt>Email auth</dt><dd>SPF ${esc(r.email.auth.spf)} · DKIM ${esc(r.email.auth.dkim)} · DMARC ${esc(r.email.auth.dmarc)}</dd>
+      <dt>Pay to (invoice)</dt><dd class="${changed ? 'diff' : ''}">${esc(x.bank.routing || '—')} · ${mask(x.bank)}</dd>
+      <dt>On file</dt><dd>${vendor ? `${esc(vendor.bank.routing)} · ${mask(vendor.bank)}` : 'no vendor record'}</dd>
+      <dt>Email auth</dt><dd>${r.source?.kind === 'pdf' ? 'uploaded file, no headers' : `SPF ${esc(r.email.auth.spf)} · DKIM ${esc(r.email.auth.dkim)} · DMARC ${esc(r.email.auth.dmarc)}`}</dd>
       <dt>Callback number</dt><dd>${esc(vendor?.phone || '—')}</dd>
     </dl></div>`;
   }
@@ -314,15 +320,23 @@ function drawChart(el, b, r) {
 document.addEventListener('click', async (e) => {
   const t = e.target.closest('[data-s],[data-id],[data-act],[data-ev],[data-q]');
   if (!t) return;
-  if (t.dataset.s) await api('/api/inbound', { scenario: t.dataset.s });
+  if (t.dataset.s) await api('/api/invoices', { scenario: t.dataset.s });
   else if (t.dataset.id) { selected = t.dataset.id; refresh(); }
-  else if (t.dataset.act) { const r = await api(`/api/requests/${selected}/decision`, { action: t.dataset.act }); if (r.error) alert(r.error); }
+  else if (t.dataset.act) { const r = await api(`/api/cases/${selected}/decision`, { action: t.dataset.act }); if (r.error) alert(r.error); }
   else if (t.dataset.ev) { const key = selected + t.dataset.f; openEv[key] = openEv[key] === t.dataset.ev ? null : t.dataset.ev; renderDetail(); }
   else if (t.dataset.q) await api('/api/sms/reply', { text: t.dataset.q });
 });
 $('sendform').addEventListener('submit', async (e) => { e.preventDefault(); const v = $('reply').value.trim(); if (!v) return; $('reply').value = ''; await api('/api/sms/reply', { text: v }); });
-$('sendraw').addEventListener('click', async () => { const raw = $('raw').value.trim(); if (raw) { await api('/api/inbound', { raw }); $('raw').value = ''; } });
-$('reset').addEventListener('click', async () => { if (confirm('Reload the demo data and clear the queue, texts and ledger?')) { await api('/api/reset', {}); lastTop = null; selected = null; refresh(); } });
+$('sendraw').addEventListener('click', async () => { const raw = $('raw').value.trim(); if (raw) { await api('/api/invoices', { raw }); $('raw').value = ''; } });
+$('sendpdf').addEventListener('click', async () => {
+  const file = $('pdf').files[0];
+  if (!file) return;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const r = await api('/api/invoices', { pdfBase64: btoa(bin), filename: file.name, sender: $('sender').value.trim() || undefined });
+  if (r.error) alert(r.error); else $('pdf').value = '';
+});
+$('reset').addEventListener('click', async () => { if (confirm('Reload the demo data and clear the queue, texts and ledger?')) { await api('/api/seed', {}); lastTop = null; selected = null; refresh(); } });
 
 if (!location.search.includes('static')) { // ?static renders once, for screenshots
   const es = new EventSource('/api/events');

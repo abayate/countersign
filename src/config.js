@@ -19,7 +19,8 @@ export const cfg = {
   tigerUrl: e.TIGER_DATABASE_URL || e.TIMESCALE_URL || '',
 
   nessieKey: e.NESSIE_API_KEY || '',
-  nessieBase: e.NESSIE_BASE_URL || 'http://api.nessieisreal.com',
+  nessieBase: e.NESSIE_URL || 'https://v2-prod-api.nessieisreal.com',
+  publicUrl: (e.PUBLIC_URL || '').replace(/\/$/, ''), // set when deployed, enables the Nessie decision hook
 
   solanaSecret: e.SOLANA_SECRET_KEY || '', // JSON byte array, as written by scripts/solana-setup.js
   solanaRpc: e.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
@@ -36,8 +37,8 @@ export function integrations() {
   return {
     gemini: on(cfg.geminiKey, cfg.geminiModel, 'rule-based extractor'),
     mongodb: on(cfg.mongoUri, `Atlas · ${cfg.mongoDb}`, 'local JSON store'),
-    tiger: on(cfg.tigerUrl, 'hypertable: payments', 'in-process time series'),
-    nessie: on(cfg.nessieKey, 'Capital One Nessie', 'mock bank'),
+    tiger: on(cfg.tigerUrl, 'hypertable + continuous aggregate', 'in-process time series'),
+    nessie: on(cfg.nessieKey, 'Capital One Nessie v2', 'mock bank'),
     solana: on(cfg.solanaSecret, 'devnet memo anchor', 'local hash chain only'),
     photon: on(cfg.photonKey && cfg.photonProject && cfg.photonApprover, cfg.photonPlatform, 'on-screen phone simulator'),
   };

@@ -42,7 +42,8 @@ test('"bank details have changed" email is held and the approver is texted', asy
   const before = await w.bank.balance();
   const r = await w.agent.process(SCENARIOS.bec.build());
   assert.equal(r.status, 'held');
-  for (const c of ['BANK_CHANGE', 'DOMAIN_LOOKALIKE', 'AUTH_FAIL', 'REPLY_TO_MISMATCH', 'URGENCY']) assert.ok(codes(r).includes(c), c);
+  for (const c of ['BANK_CHANGE', 'DOMAIN_LOOKALIKE', 'AUTH_FAIL', 'REPLY_TO_MISMATCH', 'URGENCY', 'LINKED_ACTIVITY']) assert.ok(codes(r).includes(c), c);
+  assert.ok(!JSON.stringify(r).includes('7730915542'), 'account number is not kept anywhere in the case');
   assert.equal(r.vendorId, 'v-northwind');
   assert.equal(await w.bank.balance(), before, 'no money moved');
   const [sms] = await texts(w);
@@ -58,7 +59,7 @@ test('HOLD reply blocks the payment and blocklists the account for the next atte
   const r = await w.agent.process(SCENARIOS.bec.build());
   const answer = await w.notifier.receive(`HOLD ${r.n}`, 'Dana');
   assert.match(answer, /blocked/);
-  assert.equal((await w.store.col('requests').get(r.id)).status, 'blocked');
+  assert.equal((await w.store.col('cases').get(r.id)).status, 'blocked');
   const again = await w.agent.process(SCENARIOS.bec.build());
   assert.ok(codes(again).includes('BANK_BLOCKLISTED'));
 });
@@ -79,9 +80,10 @@ test('APPROVE reply pays and makes the new bank details the vendor master', asyn
   const r = await w.agent.process(SCENARIOS.takeover.build());
   const answer = await w.notifier.receive('approve', 'Dana'); // number optional when one item waits
   assert.match(answer, /released/);
-  assert.equal((await w.store.col('requests').get(r.id)).status, 'paid');
+  assert.equal((await w.store.col('cases').get(r.id)).status, 'paid');
   const v = await w.store.col('vendors').get('v-summit');
-  assert.equal(v.bank.account, '2290417786');
+  assert.equal(v.bank.last4, '7786');
+  assert.equal(v.bank.account, undefined, 'full account number is never stored');
   assert.equal(v.bankHistory.length, 1);
 });
 
@@ -100,11 +102,11 @@ test('look-alike vendor, duplicate invoice and amount spike are all held', async
 
 test('unknown sender cannot be approved by text', async () => {
   const w = await world();
-  const raw = SCENARIOS.legit.build().replaceAll('cascadepackaging.example', 'zephyr-consulting.example').replaceAll('Cascade Packaging', 'Zephyr Consulting');
-  const r = await w.agent.process(raw);
+  const raw = SCENARIOS.spike.build().raw.replaceAll('brightline-electric.example', 'zephyr-consulting.example').replaceAll('Brightline Electric', 'Zephyr Consulting');
+  const r = await w.agent.process({ raw });
   assert.ok(codes(r).includes('UNKNOWN_VENDOR'));
   assert.match(await w.notifier.receive(`APPROVE ${r.n}`, 'Dana'), /not an approved vendor/);
-  assert.equal((await w.store.col('requests').get(r.id)).status, 'held');
+  assert.equal((await w.store.col('cases').get(r.id)).status, 'held');
 });
 
 test('decision ledger is a hash chain that detects tampering', async () => {
@@ -130,4 +132,33 @@ test('background worker reminds the approver once about an unanswered hold', asy
   const all = await texts(w);
   assert.equal(all.length, 2);
   assert.ok(all.some((m) => m.text.startsWith('Reminder') && m.text.includes(r.id)));
+});
+
+test('uploaded PDF invoices are read and checked like emails', async () => {
+  const w = await world();
+  const clean = await w.agent.process(SCENARIOS.legit.build());
+  assert.equal(clean.source.kind, 'pdf');
+  assert.equal(clean.status, 'paid');
+  const fake = await w.agent.process(SCENARIOS.fakepdf.build());
+  assert.equal(fake.status, 'held');
+  for (const c of ['BANK_CHANGE', 'DOMAIN_LOOKALIKE', 'AMOUNT_ANOMALY']) assert.ok(codes(fake).includes(c), c);
+});
+
+test('a second case that reuses the same account or IP is linked to the first', async () => {
+  const w = await world();
+  const a = await w.agent.process(SCENARIOS.bec.build());
+  const b = await w.agent.process(SCENARIOS.takeover.build());
+  assert.ok(codes(b).includes('LINKED_CASE'), 'takeover session IP matches the earlier email origin');
+  assert.ok(b.caseFile.evidence.some((e) => e.source === 'case-link' && e.label.includes(a.id)));
+});
+
+test('time series records held and declined events without polluting the baseline', async () => {
+  const w = await world();
+  const before = (await w.series.baseline('v-northwind')).n;
+  const r = await w.agent.process(SCENARIOS.bec.build());
+  await w.agent.decide(r.id, 'hold');
+  const statuses = (await w.store.col('payments').all()).filter((p) => p.requestId === r.id).map((p) => p.status).sort();
+  assert.deepEqual(statuses, ['declined', 'held']);
+  assert.equal((await w.series.baseline('v-northwind')).n, before);
+  assert.ok((await w.series.daily('v-northwind')).length >= 12);
 });

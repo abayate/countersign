@@ -16,14 +16,14 @@ Business email compromise is the most expensive kind of fraud that needs no malw
 
 ### What it does
 
-Countersign reads every payment request that reaches accounts payable. It extracts the payee, amount and bank details, matches them to the vendor master, and runs fifteen checks against the vendor's own history. Clean invoices are paid and nobody is interrupted. Anything suspicious is investigated: email headers, vendor-portal sign-in logs and bank-detail change records are assembled into a case file with a timeline, and every finding cites the evidence behind it. The payment is held and the approver gets a text with the top reasons and the phone number on file. They reply APPROVE, HOLD or WHY. Every verdict and decision is written to a tamper-evident ledger.
+Countersign reads every payment request that reaches accounts payable. It extracts the payee, amount and bank details from a PDF or an email, matches them to the vendor master, and runs fifteen checks against the vendor's own history. Clean invoices are paid and nobody is interrupted. Anything suspicious is investigated: email headers, vendor-portal sign-in logs and bank-detail change records are assembled into a case file with a timeline, and every finding cites the evidence behind it. The payment is held and the approver gets a text with the top reasons and the phone number on file. They reply APPROVE, HOLD or WHY. Every verdict and decision is written to a tamper-evident ledger.
 
 ### How we built it
 
 - Node.js and Express, a single-page dashboard with live updates, no build step
 - Gemini reads the invoice email and writes the explanation; deterministic checks make the decision
-- MongoDB Atlas holds vendors, requests and case files; Tiger Data holds payment history as a hypertable for per-vendor baselines
-- Capital One Nessie is the bank: an operating account, vendors as merchants, invoices as bills, payments as purchases
+- MongoDB Atlas holds vendors, requests and case files; Tiger Data holds paid, held and declined payment events in a hypertable with a continuous aggregate for per-vendor baselines
+- Capital One Nessie v2 is the bank: an operating account, a payee account per vendor, invoices as bills, payments as transfers, and a decision hook that declines transfers to unverified accounts
 - Photon texts the approver and reads replies
 - Each ledger entry is a link in a SHA-256 hash chain and is anchored on Solana devnet
 - Docker on Vultr, with a background worker that re-sends an unanswered hold
@@ -55,7 +55,7 @@ Real inbox ingestion, PDF invoices, login and roles for the dashboard, and a cal
 | Business and Enterprise (main track) | Working product, clear problem | Nothing beyond a clean demo |
 | Gemini API | Real use of the model | Key in `.env`; confirm the "Read by: Gemini" label appears |
 | MongoDB Atlas | Atlas in use | Cluster URI; optional Atlas Search index on `vendors.name` |
-| Tiger Data | Time-series use | Service URL; show the hypertable and `time_bucket` query in `src/timeseries.js` |
+| Tiger Data | Time-series use, continuous aggregates, compression | Service URL; show the hypertable, `vendor_daily` aggregate and compression policy in `src/timeseries.js` |
 | Solana | On-chain use | Fund a devnet key; click a ledger entry through to the explorer |
 | Vultr | Hosted on Vultr | Create an instance, run `deploy/vultr-cloud-init.sh` |
 | GoDaddy Registry | A registered domain | Register one and point it at the Vultr IP |

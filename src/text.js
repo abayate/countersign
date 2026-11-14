@@ -1,4 +1,5 @@
 // Small string helpers shared by the checks.
+import { createHash } from 'node:crypto';
 
 export function levenshtein(a, b) {
   if (a === b) return 0;
@@ -42,5 +43,11 @@ export function isLookalikeDomain(domain, real) {
 
 export const money = (n) =>
   Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-export const maskAcct = (a = '') => (a ? `••••${String(a).slice(-4)}` : '—');
-export const bankKey = (b) => (b?.routing && b?.account ? `${b.routing}:${b.account}` : '');
+// Bank details are stored as a fingerprint (hash) plus the last four digits, never the full number.
+export function toBank(routing, account, bankName = null) {
+  if (!routing || !account) return { routing: routing || null, last4: account ? String(account).slice(-4) : null, fingerprint: null, bankName };
+  const fingerprint = createHash('sha256').update(`${routing}:${account}`).digest('hex').slice(0, 24);
+  return { routing, last4: String(account).slice(-4), fingerprint, bankName };
+}
+export const maskAcct = (b) => (b?.last4 ? `••••${b.last4}` : '—');
+export const bankKey = (b) => b?.fingerprint || '';
