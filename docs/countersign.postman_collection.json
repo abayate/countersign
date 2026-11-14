@@ -30,6 +30,17 @@
       "value": "",
       "type": "string",
       "description": "One-use opt-in: exact displayed name of one state-changing/SSE request. Leave empty for normal reads."
+    },
+    {
+      "key": "ledgerId",
+      "value": "L1",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string",
+      "description": "COUNTERSIGN_TOKEN when the server requires one; leave empty on a loopback server."
     }
   ],
   "item": [
@@ -140,6 +151,46 @@
               }
             }
           ]
+        },
+        {
+          "name": "Service health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/health",
+            "description": "Which services are live, connected, stand-ins or need attention, from the running adapters."
+          },
+          "response": []
+        },
+        {
+          "name": "Linked cases graph",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/graph",
+            "description": "Cases joined to the IPs and account fingerprints they share."
+          },
+          "response": []
+        },
+        {
+          "name": "Monthly paid/held/declined",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/metrics/timeline?months=13",
+            "description": "Monthly buckets; TimescaleDB time_bucket when Tiger is live."
+          },
+          "response": []
+        },
+        {
+          "name": "Verify ledger entry on Solana",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/ledger/{{ledgerId}}/onchain",
+            "description": "Recomputes the hash and compares the devnet memo and signer. Reads devnet; no transaction is sent."
+          },
+          "response": []
         }
       ]
     },
@@ -262,6 +313,45 @@
               }
             }
           ]
+        },
+        {
+          "name": "Ask a case a question",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cases/{{caseId}}/ask",
+            "description": "Answer drawn only from the case file, with checked citations. Never changes a decision. May call Gemini when configured. Skipped by default; see allowRequestOnce in docs/API.md.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Where did the sign-in come from?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.collectionVariables.get('allowRequestOnce') !== pm.info.requestName) {",
+                  "  console.warn('Skipped: set collection allowRequestOnce to this exact request name to send deliberately.');",
+                  "  pm.execution.skipRequest();",
+                  "}",
+                  "pm.collectionVariables.set('allowRequestOnce', '');"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -282,7 +372,7 @@
             "description": "Deletes local/cloud application data and creates remote bank resources. Current reset is not recoverable/atomic. Requires explicit operator intent. Skipped by default; see allowRequestOnce in docs/API.md.",
             "body": {
               "mode": "raw",
-              "raw": "{}",
+              "raw": "{\n  \"confirm\": \"reset\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -353,5 +443,15 @@
         }
       ]
     }
-  ]
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  }
 }

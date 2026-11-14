@@ -6,7 +6,7 @@ tags: ai, security, fintech, hackathon
 
 <!-- Fill every [bracket] before publishing. Set published: true only when the Devpost submission is in. -->
 
-*Built at [Event] by [Team names]. Demo video: [link]. Code: https://github.com/nmea002/countersign*
+*Built at HackPrinceton Fall 2026 by [Team names]. Demo video: [link]. Code: https://github.com/nmea002/countersign*
 
 ## The problem
 
